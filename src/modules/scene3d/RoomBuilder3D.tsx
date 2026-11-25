@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -55,6 +55,7 @@ import {
   FOUR_COLOR_ROOM_PALETTE,
   RoomColorTone,
 } from '../../utils/roomColors';
+import { computeElevationBounds, getRoomCutState } from '../../utils/levels';
 
 export interface CircuitFocusRequest {
   nonce: number;
@@ -87,6 +88,8 @@ export interface RoomBuilder3DProps {
   magneticSnap?: boolean;
   workElevation?: number;
   levelFilter?: LevelFilterMode;
+  cutPlaneY?: number | null;
+  onLevelCutChange?: (nextFilter: LevelFilterMode, nextCutY: number | null) => void;
   onSelectRoom: (zoneId: string | null) => void;
   onSelectOpening: (openingId: string | null) => void;
   onSelectPoint: (pointId: string | null) => void;
@@ -1639,6 +1642,8 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
   magneticSnap = true,
   workElevation = 0,
   levelFilter = 'all',
+  cutPlaneY = null,
+  onLevelCutChange,
   onSelectRoom,
   onSelectOpening,
   onSelectPoint,
@@ -1660,15 +1665,19 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
   onInteractionStart,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
+  const cutTrackRef = useRef<HTMLDivElement | null>(null);
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [liveMeasure, setLiveMeasure] = useState<string | null>(null);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
+  const [isDraggingCutPlane, setIsDraggingCutPlane] = useState(false);
   const [selectedCableKey, setSelectedCableKey] = useState<string | null>(null);
   const [activeCableSummary, setActiveCableSummary] = useState<{
     routeKey: string;
     label: string;
     isCustom: boolean;
   } | null>(null);
+
+  const elevationBounds = useMemo(() => computeElevationBounds(rooms), [rooms]);
 
   const propsRef = useRef({
     rooms,
@@ -3335,9 +3344,73 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
     }
 
     const roomTones = computeFourColorRoomTones(rooms);
+    const activeCutY = levelFilter === 'active' ? (cutPlaneY ?? workElevation) : null;
+    const houseMaxY = elevationBounds.maxY;
+
+    const isRoomCutAbove = (r: RoomZone | undefined) =>
+      Boolean(r && activeCutY !== null && getRoomCutState(r, activeCutY, houseMaxY) === 'above');
+
+    // Plan de coupe horizontal visuel dans la scène 3D
+    if (activeCutY !== null && activeCutY < houseMaxY - 0.02 && rooms.length > 0) {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (const r of rooms) {
+        minX = Math.min(minX, r.x - r.largeur / 2);
+        maxX = Math.max(maxX, r.x + r.largeur / 2);
+        minZ = Math.min(minZ, r.z - r.profondeur / 2);
+        maxZ = Math.max(maxZ, r.z + r.profondeur / 2);
+      }
+      const pad = 0.75;
+      const pw = Math.max(2, maxX - minX + pad * 2);
+      const pd = Math.max(2, maxZ - minZ + pad * 2);
+      const cx = (minX + maxX) / 2;
+      const cz = (minZ + maxZ) / 2;
+
+      const planeGroup = new THREE.Group();
+      planeGroup.position.set(cx, activeCutY, cz);
+
+      const borderPts = [
+        new THREE.Vector3(-pw / 2, 0, -pd / 2),
+        new THREE.Vector3(pw / 2, 0, -pd / 2),
+        new THREE.Vector3(pw / 2, 0, pd / 2),
+        new THREE.Vector3(-pw / 2, 0, pd / 2),
+      ];
+      const borderGeo = new THREE.BufferGeometry().setFromPoints(borderPts);
+      const borderMat = new THREE.LineBasicMaterial({
+        color: 0x2563eb,
+        transparent: true,
+        opacity: isDraggingCutPlane ? 0.75 : 0.18,
+      });
+      const borderLine = new THREE.LineLoop(borderGeo, borderMat);
+      borderLine.raycast = () => {};
+      planeGroup.add(borderLine);
+
+      if (isDraggingCutPlane) {
+        const sheetGeo = new THREE.PlaneGeometry(pw, pd);
+        sheetGeo.rotateX(-Math.PI / 2);
+        const sheetMat = new THREE.MeshBasicMaterial({
+          color: 0x3b82f6,
+          transparent: true,
+          opacity: 0.08,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        const sheetMesh = new THREE.Mesh(sheetGeo, sheetMat);
+        sheetMesh.raycast = () => {};
+        planeGroup.add(sheetMesh);
+      }
+
+      s.roomsGroup.add(planeGroup);
+    }
 
     for (const room of rooms) {
-      const isGhostLevel = levelFilter === 'active' && Math.abs(room.y - workElevation) > 0.6;
+      const cutState = getRoomCutState(room, activeCutY, houseMaxY);
+      if (cutState === 'above') {
+        continue;
+      }
+      const isGhostLevel = cutState === 'below';
       const isSelected = room.zone_id === selectedRoomId && !isGhostLevel;
       const roomOpenings = openings.filter((o) => o.zone_id === room.zone_id);
       const roomPoints = points.filter((p) => p.zone_id === room.zone_id);
@@ -3407,17 +3480,20 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
         const panelOut = panelWorld.clone().addScaledVector(panelLocal.normal, 0.16);
         const traceHex = BOARD_PHASE_META[effectiveBreaker.phases].hex;
 
-        const targetPoints = points.filter(
-          (pt) => pt.disjoncteur_id === effectiveBreaker.element_id,
-        );
+        const targetPoints = points.filter((pt) => {
+          if (pt.disjoncteur_id !== effectiveBreaker.element_id) return false;
+          return !isRoomCutAbove(roomsById.get(pt.zone_id));
+        });
 
-        // Jalon visuel sur le coffret amont
-        const hubDot = new THREE.Mesh(
-          new THREE.SphereGeometry(0.072, 14, 12),
-          new THREE.MeshBasicMaterial({ color: traceHex }),
-        );
-        hubDot.position.copy(panelOut);
-        s.circuitGroup.add(hubDot);
+        // Jalon visuel sur le coffret amont (masqué si le coffret est sur un étage supérieur coupé)
+        if (!isRoomCutAbove(panelRoom)) {
+          const hubDot = new THREE.Mesh(
+            new THREE.SphereGeometry(0.072, 14, 12),
+            new THREE.MeshBasicMaterial({ color: traceHex }),
+          );
+          hubDot.position.copy(panelOut);
+          s.circuitGroup.add(hubDot);
+        }
 
         for (const pt of targetPoints) {
           const ptRoom = roomsById.get(pt.zone_id);
@@ -3479,6 +3555,7 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
       const parentRoom = roomsById.get(parentPanel.zone_id);
       const childRoom = roomsById.get(childPanel.zone_id);
       if (!parentRoom || !childRoom) continue;
+      if (isRoomCutAbove(parentRoom) || isRoomCutAbove(childRoom)) continue;
 
       const pLocal = getPanelLocalAndNormal(
         parentRoom,
@@ -3721,6 +3798,9 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
     phaseFilter,
     workElevation,
     levelFilter,
+    cutPlaneY,
+    isDraggingCutPlane,
+    elevationBounds.maxY,
     workspace,
   ]);
 
@@ -3902,6 +3982,185 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
       {!isConstruction && onPhaseFilterChange && (
         <div className="absolute top-3 right-3 z-10">{renderPhaseFilterBar()}</div>
       )}
+
+      {/* Échelle verticale discrète de coupe par altitude (affichée uniquement si >= 2 niveaux) */}
+      {elevationBounds.hasMultipleLevels && onLevelCutChange && (() => {
+        const { minY, maxY, levels } = elevationBounds;
+        const span = Math.max(0.5, maxY - minY);
+        const currentCutY =
+          levelFilter === 'active' && cutPlaneY !== null
+            ? Math.min(maxY, Math.max(minY, cutPlaneY))
+            : maxY;
+        const currentPercent = Math.min(100, Math.max(0, ((currentCutY - minY) / span) * 100));
+
+        const applyCutFromClientY = (clientY: number) => {
+          const track = cutTrackRef.current;
+          if (!track) return;
+          const rect = track.getBoundingClientRect();
+          if (rect.height <= 0) return;
+          const rawT = Math.min(1, Math.max(0, 1 - (clientY - rect.top) / rect.height));
+          const snappedY = Number((Math.round((minY + rawT * span) * 10) / 10).toFixed(1));
+          if (snappedY >= maxY - 0.05) {
+            onLevelCutChange('all', null);
+          } else {
+            onLevelCutChange('active', Math.max(minY, snappedY));
+          }
+        };
+
+        const fmtAlt = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)}m`;
+
+        return (
+          <div
+            className="group pointer-events-auto absolute left-2.5 top-1/2 -translate-y-1/2 z-10 flex items-center gap-1.5 select-none"
+            aria-label="Échelle verticale de coupe par altitude"
+          >
+            {/* Rail fin flottant */}
+            <div
+              className={`flex flex-col items-center gap-1 px-1.5 py-2 rounded-full border backdrop-blur-xs transition-all ${
+                levelFilter === 'active' || isDraggingCutPlane
+                  ? 'bg-white/90 border-slate-200 shadow-sm opacity-100'
+                  : 'bg-white/70 border-slate-200/70 shadow-xs opacity-65 group-hover:opacity-100 group-hover:bg-white/95'
+              }`}
+            >
+              {levelFilter === 'active' && (
+                <button
+                  type="button"
+                  onClick={() => onLevelCutChange('all', null)}
+                  title="Réafficher toute la maison"
+                  className="w-4 h-4 rounded-full bg-slate-100 hover:bg-slate-900 hover:text-white text-slate-600 text-[10px] font-bold leading-none flex items-center justify-center transition-colors"
+                >
+                  ×
+                </button>
+              )}
+
+              <div
+                ref={cutTrackRef}
+                onPointerDown={(ev) => {
+                  ev.preventDefault();
+                  ev.currentTarget.setPointerCapture(ev.pointerId);
+                  setIsDraggingCutPlane(true);
+                  applyCutFromClientY(ev.clientY);
+                }}
+                onPointerMove={(ev) => {
+                  if (!isDraggingCutPlane) return;
+                  applyCutFromClientY(ev.clientY);
+                }}
+                onPointerUp={(ev) => {
+                  if (ev.currentTarget.hasPointerCapture(ev.pointerId)) {
+                    ev.currentTarget.releasePointerCapture(ev.pointerId);
+                  }
+                  setIsDraggingCutPlane(false);
+                }}
+                onPointerCancel={() => setIsDraggingCutPlane(false)}
+                onDoubleClick={() => onLevelCutChange('all', null)}
+                className="relative w-3.5 h-36 flex justify-center touch-none cursor-ns-resize"
+                title={
+                  levelFilter === 'active'
+                    ? `Plan de coupe : ${fmtAlt(currentCutY)} (glisser ou double-cliquer pour tout afficher)`
+                    : 'Glisser verticalement pour couper la maison par altitude'
+                }
+              >
+                <div className="w-1 h-full rounded-full bg-slate-300/80 relative overflow-hidden">
+                  <div
+                    className={`absolute bottom-0 left-0 right-0 rounded-full ${
+                      levelFilter === 'active' ? 'bg-blue-600' : 'bg-slate-500/60'
+                    }`}
+                    style={{ height: `${currentPercent}%` }}
+                  />
+                </div>
+
+                {/* Repères fins des niveaux */}
+                {levels.map((lvl) => {
+                  const pct = Math.min(100, Math.max(0, ((lvl.y - minY) / span) * 100));
+                  return (
+                    <div
+                      key={lvl.key}
+                      className="pointer-events-none absolute left-0.5 right-0.5 h-px bg-slate-500/60"
+                      style={{ bottom: `${pct}%` }}
+                    />
+                  );
+                })}
+
+                {/* Curseur */}
+                <div
+                  className={`pointer-events-none absolute left-1/2 -translate-x-1/2 translate-y-1/2 w-3 h-3 rounded-full border-2 shadow-xs transition-transform ${
+                    isDraggingCutPlane ? 'scale-125' : ''
+                  } ${
+                    levelFilter === 'active'
+                      ? 'bg-white border-blue-600'
+                      : 'bg-white border-slate-600'
+                  }`}
+                  style={{ bottom: `${currentPercent}%` }}
+                />
+              </div>
+
+              {levelFilter === 'active' && (
+                <span className="font-mono-num text-[9px] font-semibold text-blue-700 leading-none">
+                  {fmtAlt(currentCutY)}
+                </span>
+              )}
+            </div>
+
+            {/* Étiquettes de niveaux révélées au survol ou pendant le glissement */}
+            <div
+              className={`relative h-36 w-12 transition-opacity duration-150 ${
+                isDraggingCutPlane
+                  ? 'opacity-100 pointer-events-auto'
+                  : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => onLevelCutChange('all', null)}
+                className={`absolute -top-3 left-0 px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none whitespace-nowrap shadow-xs border transition-colors ${
+                  levelFilter === 'all'
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-white/95 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+                title="Afficher toute la maison"
+              >
+                Tout · {fmtAlt(maxY)}
+              </button>
+
+              {levels.map((lvl) => {
+                const pct = Math.min(92, Math.max(6, ((lvl.y - minY) / span) * 100));
+                const isTraversed =
+                  levelFilter === 'active' &&
+                  currentCutY >= lvl.y - 0.02 &&
+                  currentCutY < lvl.topY - 0.02;
+                return (
+                  <button
+                    key={lvl.key}
+                    type="button"
+                    onClick={() => {
+                      const midY = Number(
+                        Math.min(
+                          maxY - 0.1,
+                          lvl.y + Math.min(1.2, Math.max(0.2, (lvl.topY - lvl.y) * 0.5)),
+                        ).toFixed(1),
+                      );
+                      onLevelCutChange('active', Math.max(minY, midY));
+                    }}
+                    title={lvl.title}
+                    style={{ bottom: `${pct}%` }}
+                    className={`absolute left-0 translate-y-1/2 px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none whitespace-nowrap shadow-xs border transition-colors ${
+                      isTraversed
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white/95 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {lvl.shortLabel}
+                  </button>
+                );
+              })}
+
+              <span className="pointer-events-none absolute -bottom-3 left-0 font-mono-num text-[9px] text-slate-500 leading-none">
+                {fmtAlt(minY)}
+              </span>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Dock de construction (affiché uniquement en mode Construction) */}
       {isConstruction && (

@@ -214,6 +214,7 @@ export interface SceneConfig {
   magneticSnap: boolean;
   workElevation: number;
   levelFilter: LevelFilterMode;
+  cutPlaneY?: number | null;
   selectedRoomId: string | null;
   selectedOpeningId?: string | null;
   selectedPointId?: string | null;

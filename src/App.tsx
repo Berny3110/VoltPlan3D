@@ -26,6 +26,7 @@ import {
   CableWaypoint,
   ElectricalPoint,
   InteractionMode,
+  LevelFilterMode,
   PhaseCode,
   PhaseFilter,
   PointCategory,
@@ -39,6 +40,7 @@ import {
   findConnectedBuilding,
   getNextBuildingMeta,
 } from './utils/buildings';
+import { computeElevationBounds, getRoomCutState } from './utils/levels';
 
 const INITIAL_ROOM: RoomZone = {
   zone_id: 'Z_ATELIER',
@@ -121,7 +123,14 @@ export default function App() {
 
   const snapStep = 0.1;
   const magneticSnap = true;
-  const levelFilter = 'all' as const;
+  const [levelFilter, setLevelFilter] = useState<LevelFilterMode>(() =>
+    saved?.sceneConfig.levelFilter === 'active' ? 'active' : 'all',
+  );
+  const [cutPlaneY, setCutPlaneY] = useState<number | null>(() =>
+    saved?.sceneConfig.levelFilter === 'active'
+      ? (saved.sceneConfig.cutPlaneY ?? saved.sceneConfig.workElevation ?? 0)
+      : null,
+  );
   const [workElevation, setWorkElevation] = useState<number>(0);
   const [undoStack, setUndoStack] = useState<ProjectSnapshot[]>([]);
   const [fileNotice, setFileNotice] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
@@ -191,6 +200,7 @@ export default function App() {
       magneticSnap,
       workElevation,
       levelFilter,
+      cutPlaneY,
       selectedRoomId,
       selectedOpeningId,
       selectedPointId,
@@ -202,6 +212,7 @@ export default function App() {
       magneticSnap,
       workElevation,
       levelFilter,
+      cutPlaneY,
       selectedRoomId,
       selectedOpeningId,
       selectedPointId,
@@ -257,6 +268,35 @@ export default function App() {
   const breakers = useMemo(
     () => boardElements.filter((el) => el.type_element === 'disjoncteur'),
     [boardElements],
+  );
+
+  const elevationBounds = useMemo(() => computeElevationBounds(rooms), [rooms]);
+
+  useEffect(() => {
+    if (levelFilter !== 'active') return;
+    if (!elevationBounds.hasMultipleLevels) {
+      setLevelFilter('all');
+      setCutPlaneY(null);
+      return;
+    }
+    if (cutPlaneY === null) {
+      setCutPlaneY(Number(Math.max(elevationBounds.minY, elevationBounds.maxY - 0.1).toFixed(1)));
+      return;
+    }
+    if (cutPlaneY < elevationBounds.minY - 0.05) {
+      setCutPlaneY(elevationBounds.minY);
+    } else if (cutPlaneY > elevationBounds.maxY + 0.05) {
+      setLevelFilter('all');
+      setCutPlaneY(null);
+    }
+  }, [cutPlaneY, elevationBounds.hasMultipleLevels, elevationBounds.maxY, elevationBounds.minY, levelFilter]);
+
+  const handleLevelCutChange = useCallback(
+    (nextFilter: LevelFilterMode, nextCutY: number | null) => {
+      setLevelFilter(nextFilter);
+      setCutPlaneY(nextCutY);
+    },
+    [],
   );
 
   const selectedRoom = useMemo(
@@ -414,20 +454,89 @@ export default function App() {
     }
   }, []);
 
-  const handleFocusCircuit = useCallback((panelId: string, breakerId: string) => {
-    setFocusRequest({
-      nonce: Date.now() + Math.random(),
-      targetPanelId: panelId,
-      targetBreakerId: breakerId,
-    });
-  }, []);
+  const ensureRoomLevelVisible = useCallback(
+    (zoneId: string | null) => {
+      if (!zoneId || levelFilter !== 'active') return;
+      const room = rooms.find((r) => r.zone_id === zoneId);
+      if (!room) return;
+      if (getRoomCutState(room, cutPlaneY, elevationBounds.maxY) !== 'traversed') {
+        const nextCut = Number(
+          Math.min(
+            elevationBounds.maxY - 0.1,
+            room.y + Math.min(1.2, Math.max(0.1, room.hauteur * 0.5)),
+          ).toFixed(1),
+        );
+        setCutPlaneY(Math.max(elevationBounds.minY, nextCut));
+      }
+    },
+    [cutPlaneY, elevationBounds.maxY, elevationBounds.minY, levelFilter, rooms],
+  );
 
-  const handleFocusPoint = useCallback((pointId: string) => {
-    setFocusRequest({
-      nonce: Date.now() + Math.random(),
-      targetPointId: pointId,
-    });
-  }, []);
+  const handleSelectRoomFromDrawer = useCallback(
+    (zoneId: string | null) => {
+      setSelectedRoomId(zoneId);
+      ensureRoomLevelVisible(zoneId);
+    },
+    [ensureRoomLevelVisible],
+  );
+
+  const handleSelectOpeningFromDrawer = useCallback(
+    (openingId: string | null) => {
+      setSelectedOpeningId(openingId);
+      if (openingId) {
+        const op = openings.find((o) => o.opening_id === openingId);
+        if (op) ensureRoomLevelVisible(op.zone_id);
+      }
+    },
+    [ensureRoomLevelVisible, openings],
+  );
+
+  const handleSelectPointFromDrawer = useCallback(
+    (pointId: string | null) => {
+      setSelectedPointId(pointId);
+      if (pointId) {
+        const pt = points.find((p) => p.point_id === pointId);
+        if (pt) ensureRoomLevelVisible(pt.zone_id);
+      }
+    },
+    [ensureRoomLevelVisible, points],
+  );
+
+  const handleSelectPanelFromDrawer = useCallback(
+    (panelId: string | null) => {
+      setSelectedPanelId(panelId);
+      if (panelId) {
+        const pnl = panels.find((p) => p.element_id === panelId);
+        if (pnl) ensureRoomLevelVisible(pnl.zone_id);
+      }
+    },
+    [ensureRoomLevelVisible, panels],
+  );
+
+  const handleFocusCircuit = useCallback(
+    (panelId: string, breakerId: string) => {
+      const pnl = panels.find((p) => p.element_id === panelId);
+      if (pnl) ensureRoomLevelVisible(pnl.zone_id);
+      setFocusRequest({
+        nonce: Date.now() + Math.random(),
+        targetPanelId: panelId,
+        targetBreakerId: breakerId,
+      });
+    },
+    [ensureRoomLevelVisible, panels],
+  );
+
+  const handleFocusPoint = useCallback(
+    (pointId: string) => {
+      const pt = points.find((p) => p.point_id === pointId);
+      if (pt) ensureRoomLevelVisible(pt.zone_id);
+      setFocusRequest({
+        nonce: Date.now() + Math.random(),
+        targetPointId: pointId,
+      });
+    },
+    [ensureRoomLevelVisible, points],
+  );
 
   const handleCreateRoom = (geometry: Omit<RoomZone, 'zone_id' | 'nom'>) => {
     pushUndoSnapshot();
@@ -453,6 +562,18 @@ export default function App() {
     setSelectedPanelId(null);
     setInspectorOpen(true);
     setWorkElevation(0);
+    if (levelFilter === 'active') {
+      const nextMaxY = Math.max(elevationBounds.maxY, newRoom.y + newRoom.hauteur);
+      if (getRoomCutState(newRoom, cutPlaneY, nextMaxY) !== 'traversed') {
+        const nextCut = Number(
+          Math.min(
+            nextMaxY - 0.1,
+            newRoom.y + Math.min(1.2, Math.max(0.1, newRoom.hauteur * 0.5)),
+          ).toFixed(1),
+        );
+        setCutPlaneY(Math.max(Math.min(elevationBounds.minY, newRoom.y), nextCut));
+      }
+    }
     setMode('select');
   };
 
@@ -768,19 +889,31 @@ export default function App() {
   };
 
   const handleModeChange = (nextMode: InteractionMode) => {
+    const activeCut = levelFilter === 'active' ? cutPlaneY : null;
+    const isVisibleRoom = (r: RoomZone) =>
+      activeCut === null || getRoomCutState(r, activeCut, elevationBounds.maxY) === 'traversed';
+
     if (
       (nextMode === 'door' || nextMode === 'window' || nextMode === 'point' || nextMode === 'panel') &&
       !selectedRoomId &&
       rooms.length > 0
     ) {
-      const match = rooms.find((r) => Math.abs(r.y - workElevation) <= 0.6) ?? rooms[0];
+      const match = rooms.find(isVisibleRoom) ?? rooms[0];
       setSelectedRoomId(match.zone_id);
     }
     if (nextMode !== 'select') {
       setWorkspace('construction');
       setPhaseFilter('TOUTES');
     }
-    if (nextMode !== 'draw') {
+    if (nextMode === 'draw') {
+      if (activeCut !== null) {
+        const selVisible = selectedRoom && isVisibleRoom(selectedRoom) ? selectedRoom : null;
+        const firstVisible = rooms.find(isVisibleRoom) ?? null;
+        setWorkElevation(selVisible?.y ?? firstVisible?.y ?? 0);
+      } else {
+        setWorkElevation(0);
+      }
+    } else {
       setWorkElevation(0);
     }
     if (nextMode === 'point') {
@@ -812,6 +945,8 @@ export default function App() {
     setSelectedBreakerId(null);
     setInspectorOpen(false);
     setPhaseFilter('TOUTES');
+    setLevelFilter('all');
+    setCutPlaneY(null);
     setWorkElevation(0);
     setMode('select');
     setZipMenuOpen(false);
@@ -870,6 +1005,17 @@ export default function App() {
       setBoardElements(res.boardElements);
       setPanelPositions(res.panelPositions);
       setCableRoutes(res.cableRoutes);
+      const importedBounds = computeElevationBounds(res.rooms);
+      const nextLevelFilter: LevelFilterMode =
+        importedBounds.hasMultipleLevels && res.sceneConfig.levelFilter === 'active'
+          ? 'active'
+          : 'all';
+      setLevelFilter(nextLevelFilter);
+      setCutPlaneY(
+        nextLevelFilter === 'active'
+          ? (res.sceneConfig.cutPlaneY ?? res.sceneConfig.workElevation ?? importedBounds.minY)
+          : null,
+      );
       setWorkElevation(0);
       setPhaseFilter('TOUTES');
 
@@ -1023,12 +1169,7 @@ export default function App() {
           {workspace === 'construction' && (
             <button
               type="button"
-              onClick={() => {
-                setSelectedOpeningId(null);
-                setSelectedPointId(null);
-                setSelectedPanelId(null);
-                setMode((m) => (m === 'draw' ? 'select' : 'draw'));
-              }}
+              onClick={() => handleModeChange(mode === 'draw' ? 'select' : 'draw')}
               className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
                 mode === 'draw'
                   ? 'bg-slate-900 text-white'
@@ -1083,6 +1224,8 @@ export default function App() {
             magneticSnap={magneticSnap}
             workElevation={workElevation}
             levelFilter={levelFilter}
+            cutPlaneY={cutPlaneY}
+            onLevelCutChange={handleLevelCutChange}
             onSelectRoom={handleSelectRoomFrom3D}
             onSelectOpening={handleSelectOpeningFrom3D}
             onSelectPoint={handleSelectPointFrom3D}
@@ -1139,10 +1282,10 @@ export default function App() {
             onSwitchWorkspace={handleWorkspaceChange}
             onModeChange={handleModeChange}
             onActivePointCategoryChange={setActivePointCategory}
-            onSelectRoom={setSelectedRoomId}
-            onSelectOpening={setSelectedOpeningId}
-            onSelectPoint={setSelectedPointId}
-            onSelectPanel={setSelectedPanelId}
+            onSelectRoom={handleSelectRoomFromDrawer}
+            onSelectOpening={handleSelectOpeningFromDrawer}
+            onSelectPoint={handleSelectPointFromDrawer}
+            onSelectPanel={handleSelectPanelFromDrawer}
             onSelectBreaker={setSelectedBreakerId}
             onFocusCircuit={handleFocusCircuit}
             onFocusPoint={handleFocusPoint}

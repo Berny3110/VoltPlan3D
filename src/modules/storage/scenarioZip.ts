@@ -792,6 +792,7 @@ export async function importScenarioFromZip(file: File): Promise<ZipImportResult
         magneticSnap: typeof parsed.magneticSnap === 'boolean' ? parsed.magneticSnap : true,
         workElevation: typeof parsed.workElevation === 'number' ? parsed.workElevation : 0,
         levelFilter: parsed.levelFilter === 'active' ? 'active' : 'all',
+        cutPlaneY: typeof parsed.cutPlaneY === 'number' ? parsed.cutPlaneY : null,
         selectedRoomId: typeof parsed.selectedRoomId === 'string' ? parsed.selectedRoomId : null,
         selectedOpeningId:
           typeof parsed.selectedOpeningId === 'string' ? parsed.selectedOpeningId : null,
