@@ -50,6 +50,11 @@ import {
   findParentPanelForId,
   getDirectSubPanelsOfPanel,
 } from '../../utils/electrical';
+import {
+  computeFourColorRoomTones,
+  FOUR_COLOR_ROOM_PALETTE,
+  RoomColorTone,
+} from '../../utils/roomColors';
 
 export interface CircuitFocusRequest {
   nonce: number;
@@ -1111,23 +1116,40 @@ function buildElectricalPointGroup(
   });
 
   if (point.categorie === 'prise') {
-    // 1. Cadre extérieur coloré selon la phase (visible recto/verso sur tous les murs)
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.05), phaseMat);
-    // 2. Plastron central contrasté traversant le mur
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.19, 0.068), bodyMat);
-    // 3. Puits de prise coloré selon la phase + broche sombre visibles des deux côtés
-    const socket = new THREE.Mesh(new THREE.CylinderGeometry(0.064, 0.064, 0.084, 18), phaseMat);
+    // Pose en saillie côté intérieur (+Z local) pour ne jamais traverser vers la pièce voisine
+    const backing = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.012), darkMat);
+    backing.position.z = 0.006;
+
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.034), phaseMat);
+    frame.position.z = 0.029;
+
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.024), bodyMat);
+    plate.position.z = 0.05;
+
+    const socket = new THREE.Mesh(new THREE.CylinderGeometry(0.064, 0.064, 0.024, 18), phaseMat);
     socket.rotation.x = Math.PI / 2;
-    const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.096, 8), darkMat);
+    socket.position.z = 0.066;
+
+    const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.024, 8), darkMat);
     pin.rotation.x = Math.PI / 2;
-    pin.position.set(0, 0.018, 0);
-    group.add(frame, plate, socket, pin);
+    pin.position.set(0, 0.026, 0.082);
+
+    const holeL = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.008, 8), darkMat);
+    holeL.rotation.x = Math.PI / 2;
+    holeL.position.set(-0.026, -0.014, 0.077);
+
+    const holeR = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.008, 8), darkMat);
+    holeR.rotation.x = Math.PI / 2;
+    holeR.position.set(0.026, -0.014, 0.077);
+
+    group.add(backing, frame, plate, socket, pin, holeL, holeR);
   } else if (point.categorie === 'lumiere') {
     const fixture = new THREE.Group();
     if (isCeilingLight) {
       fixture.rotation.x = Math.PI; // plafonnier orienté vers le bas (-Y)
     } else {
       fixture.rotation.x = Math.PI / 2; // applique murale orientée vers l'intérieur (+Z local)
+      fixture.position.z = 0.028;
     }
 
     const backCollar = new THREE.Mesh(
@@ -1156,29 +1178,35 @@ function buildElectricalPointGroup(
     fixture.add(backCollar, base, ring, bulb);
     group.add(fixture);
   } else if (point.categorie === 'equipement_fixe') {
-    // Bloc appareil fixe traversant légèrement le mur pour lisibilité recto/verso
+    // Bloc appareil fixe posé strictement côté intérieur (+Z >= 0.01) avec façade avant lisible
     const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.28, 0.24), darkMat);
-    chassis.position.z = 0.09;
+    chassis.position.z = 0.13;
 
-    const band = new THREE.Mesh(new THREE.BoxGeometry(0.41, 0.1, 0.26), phaseMat);
-    band.position.set(0, 0.075, 0.09);
+    const band = new THREE.Mesh(new THREE.BoxGeometry(0.41, 0.1, 0.25), phaseMat);
+    band.position.set(0, 0.075, 0.13);
 
-    const badge = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.268), bodyMat);
-    badge.position.set(0, -0.03, 0.09);
+    const badge = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.06, 0.018), bodyMat);
+    badge.position.set(0, -0.03, 0.255);
 
     group.add(chassis, band, badge);
   } else {
-    // Multiprise murale à bordure colorée visible recto/verso
+    // Multiprise murale posée côté intérieur avec alvéoles orientées vers la pièce
+    const backing = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.17, 0.012), darkMat);
+    backing.position.z = 0.006;
+    group.add(backing);
+
     const stripGroup = new THREE.Group();
     stripGroup.rotation.x = Math.PI / 2;
+    stripGroup.position.z = 0.032;
 
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.056, 0.17), phaseMat);
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.078, 0.12), darkMat);
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.036, 0.17), phaseMat);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.042, 0.12), darkMat);
+    bar.position.y = 0.012;
     stripGroup.add(frame, bar);
 
     [-0.14, 0, 0.14].forEach((ox) => {
-      const slot = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.092, 12), bodyMat);
-      slot.position.set(ox, 0, 0);
+      const slot = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.032, 12), bodyMat);
+      slot.position.set(ox, 0.022, 0);
       stripGroup.add(slot);
     });
     group.add(stripGroup);
@@ -1198,7 +1226,7 @@ function buildElectricalPointGroup(
       selRing.rotation.x = Math.PI / 2;
       selRing.position.y = -0.02;
     } else {
-      selRing.position.z = 0.02;
+      selRing.position.z = 0.06;
     }
     group.add(selRing);
   }
@@ -1207,7 +1235,7 @@ function buildElectricalPointGroup(
     const hitBox = new THREE.Mesh(
       isCeilingLight
         ? new THREE.BoxGeometry(0.54, 0.38, 0.54)
-        : new THREE.BoxGeometry(0.56, 0.54, 0.42),
+        : new THREE.BoxGeometry(0.56, 0.54, 0.28),
       new THREE.MeshBasicMaterial({
         transparent: true,
         opacity: 0,
@@ -1215,7 +1243,7 @@ function buildElectricalPointGroup(
       }),
     );
     if (isCeilingLight) hitBox.position.y = -0.08;
-    else hitBox.position.z = 0.06;
+    else hitBox.position.z = 0.14;
     hitBox.userData = {
       kind: 'elec-point',
       pointId: point.point_id,
@@ -1272,18 +1300,20 @@ function buildPanelGroup(
     opacity,
   });
 
-  // Coffret mural traversant légèrement le mur pour être parfaitement lisible des deux côtés
-  const rim = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.62, 0.09), rimMat);
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.56, 0.13), casingMat);
-  const headerBand = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.09, 0.145), accentMat);
-  headerBand.position.y = 0.21;
+  // Coffret mural posé en saillie côté intérieur (+Z local) avec façade DIN orientée vers la pièce
+  const rim = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.62, 0.032), rimMat);
+  rim.position.z = 0.016;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.56, 0.064), casingMat);
+  body.position.z = 0.048;
+  const headerBand = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.09, 0.028), accentMat);
+  headerBand.position.set(0, 0.21, 0.076);
 
-  // Rangée de disjoncteurs stylisée sur les deux faces
-  const railBar = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.145), rimMat);
-  railBar.position.y = 0.02;
+  // Rangées de disjoncteurs côté intérieur uniquement
+  const railBar = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.022), rimMat);
+  railBar.position.set(0, 0.02, 0.076);
 
-  const railBar2 = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.145), rimMat);
-  railBar2.position.y = -0.15;
+  const railBar2 = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.022), rimMat);
+  railBar2.position.set(0, -0.15, 0.076);
 
   group.add(rim, body, headerBand, railBar, railBar2);
 
@@ -1305,28 +1335,30 @@ function buildPanelGroup(
       transparent,
       opacity,
     });
-    const dot = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 0.155), dotMat);
-    dot.position.set(d.x, 0.12, 0);
+    const dot = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 0.026), dotMat);
+    dot.position.set(d.x, 0.12, 0.08);
     group.add(dot);
   }
 
   if ((isSelected || isFeederHighlight) && !isPreview) {
     const selFrame = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(0.56, 0.7, 0.19)),
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(0.56, 0.7, 0.14)),
       new THREE.LineBasicMaterial({ color: isSelected ? 0x2563eb : 0x4f46e5 }),
     );
+    selFrame.position.z = 0.055;
     group.add(selFrame);
   }
 
   if (!isPreview) {
     const hitBox = new THREE.Mesh(
-      new THREE.BoxGeometry(0.58, 0.72, 0.34),
+      new THREE.BoxGeometry(0.58, 0.72, 0.22),
       new THREE.MeshBasicMaterial({
         transparent: true,
         opacity: 0,
         depthWrite: false,
       }),
     );
+    hitBox.position.z = 0.1;
     hitBox.userData = {
       kind: 'elec-panel',
       panelId: panel.element_id,
@@ -1356,6 +1388,7 @@ function buildRoomGroup(
   phaseFilter: PhaseFilter,
   isGhostLevel: boolean,
   maxAnisotropy: number,
+  roomTone: RoomColorTone = FOUR_COLOR_ROOM_PALETTE[0],
 ): THREE.Group {
   const group = new THREE.Group();
   group.position.set(room.x, room.y, room.z);
@@ -1376,18 +1409,29 @@ function buildRoomGroup(
     return group;
   }
 
-  // 1. Floor slab
+  // 1. Floor slab (4-color architectural distinction for adjacent rooms)
   const floorGeo = new THREE.BoxGeometry(room.largeur, 0.08, room.profondeur);
   const floorMat = new THREE.MeshStandardMaterial({
-    color: isSelected ? 0xdbeafe : 0xf1f5f9,
-    roughness: 0.72,
-    metalness: 0.05,
+    color: isSelected ? 0xbfdbfe : roomTone.floorHex,
+    roughness: 0.9,
+    metalness: 0.0,
   });
   const floorMesh = new THREE.Mesh(floorGeo, floorMat);
   floorMesh.position.y = 0.04;
   floorMesh.receiveShadow = true;
   floorMesh.userData = { kind: 'room-floor', roomId: room.zone_id, label: room.nom };
   group.add(floorMesh);
+
+  const floorEdges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(floorGeo),
+    new THREE.LineBasicMaterial({
+      color: isSelected ? 0x2563eb : roomTone.edgeHex,
+      transparent: true,
+      opacity: isSelected ? 0.95 : 0.65,
+    }),
+  );
+  floorEdges.position.y = 0.04;
+  group.add(floorEdges);
 
   // 2. Floor label
   const floorLabel = createRoomFloorLabel(room, maxAnisotropy);
@@ -1396,11 +1440,11 @@ function buildRoomGroup(
   // 3. Translucent walls volume
   const wallGeo = new THREE.BoxGeometry(room.largeur, room.hauteur, room.profondeur);
   const wallMat = new THREE.MeshStandardMaterial({
-    color: isSelected ? 0x60a5fa : 0x94a3b8,
-    roughness: 0.45,
-    metalness: 0.05,
+    color: isSelected ? 0x60a5fa : roomTone.wallHex,
+    roughness: 0.55,
+    metalness: 0.02,
     transparent: true,
-    opacity: isSelected ? 0.16 : 0.09,
+    opacity: isSelected ? 0.18 : 0.15,
     depthWrite: false,
   });
   const wallMesh = new THREE.Mesh(wallGeo, wallMat);
@@ -1410,9 +1454,9 @@ function buildRoomGroup(
   // 4. Architectural edges
   const edgesGeo = new THREE.EdgesGeometry(wallGeo);
   const edgeMat = new THREE.LineBasicMaterial({
-    color: isSelected ? 0x2563eb : 0x475569,
+    color: isSelected ? 0x2563eb : roomTone.edgeHex,
     transparent: true,
-    opacity: isSelected ? 0.95 : 0.65,
+    opacity: isSelected ? 0.95 : 0.72,
   });
   const edges = new THREE.LineSegments(edgesGeo, edgeMat);
   edges.position.y = room.hauteur / 2;
@@ -3290,6 +3334,8 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
       }
     }
 
+    const roomTones = computeFourColorRoomTones(rooms);
+
     for (const room of rooms) {
       const isGhostLevel = levelFilter === 'active' && Math.abs(room.y - workElevation) > 0.6;
       const isSelected = room.zone_id === selectedRoomId && !isGhostLevel;
@@ -3314,6 +3360,7 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
         phaseFilter,
         isGhostLevel,
         s.maxAnisotropy,
+        roomTones.get(room.zone_id) ?? FOUR_COLOR_ROOM_PALETTE[0],
       );
       s.roomsGroup.add(grp);
       if (!isGhostLevel) {
