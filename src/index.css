@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-canvas: #ebf0f5;
+    --bg-surface: #ffffff;
+    --bg-inset: #f1f5f9;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    --border-hairline: #e2e8f0;
+    --accent-primary: #2563eb;
+    --phase-l1: #FF6600;
+    --phase-l2: #E6007E;
+    --phase-l3: #00CC44;
+    --phase-tri: #4f46e5;
+    --phase-unknown: #64748b;
+    --danger: #dc2626;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    text-wrap: balance;
+  }
+
+  .font-mono-num {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.studio-panel {
+  background-color: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 8px 24px -6px rgba(15, 23, 42, 0.08), 0 2px 6px -1px rgba(15, 23, 42, 0.04);
+}
+
+.studio-btn {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.studio-btn:hover {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

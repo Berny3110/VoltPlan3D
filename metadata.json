@@ -1,0 +1,6 @@
+{
+  "name": "VoltPlan 3D",
+  "description": "Cartographie et analyse électrique triphasée en 3D schématique avec gestion de tableaux, photos repérées et scénarios portables ZIP/CSV.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
