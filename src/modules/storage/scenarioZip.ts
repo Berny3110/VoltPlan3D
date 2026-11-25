@@ -788,7 +788,7 @@ export async function importScenarioFromZip(file: File): Promise<ZipImportResult
       const validFilters = new Set<PhaseFilter>(['TOUTES', 'L1', 'L2', 'L3', 'INCONNU']);
       sceneConfig = {
         scenario: typeof parsed.scenario === 'string' ? parsed.scenario : 'actuel',
-        snapStep: typeof parsed.snapStep === 'number' ? parsed.snapStep : 0.5,
+        snapStep: typeof parsed.snapStep === 'number' ? parsed.snapStep : 0.1,
         magneticSnap: typeof parsed.magneticSnap === 'boolean' ? parsed.magneticSnap : true,
         workElevation: typeof parsed.workElevation === 'number' ? parsed.workElevation : 0,
         levelFilter: parsed.levelFilter === 'active' ? 'active' : 'all',

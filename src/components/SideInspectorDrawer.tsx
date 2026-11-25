@@ -79,7 +79,7 @@ function snapElevationToRooms(
     candidates.add(Number((r.y + r.hauteur).toFixed(2)));
   }
   let best = Number(rawY.toFixed(2));
-  let bestDiff = 0.18;
+  let bestDiff = 0.06;
   for (const c of candidates) {
     const d = Math.abs(rawY - c);
     if (d <= bestDiff) {
@@ -1078,7 +1078,7 @@ export const SideInspectorDrawer: React.FC<SideInspectorDrawerProps> = ({
                     onClick={() => {
                       onPushUndoSnapshot();
                       const nextY = snapElevationToRooms(
-                        Math.max(-3, room.y - 0.25),
+                        Math.max(-3, Number((room.y - 0.1).toFixed(2))),
                         room.zone_id,
                         rooms,
                         magneticSnap,
@@ -1097,7 +1097,7 @@ export const SideInspectorDrawer: React.FC<SideInspectorDrawerProps> = ({
                     onClick={() => {
                       onPushUndoSnapshot();
                       const nextY = snapElevationToRooms(
-                        Math.min(6, room.y + 0.25),
+                        Math.min(6, Number((room.y + 0.1).toFixed(2))),
                         room.zone_id,
                         rooms,
                         magneticSnap,

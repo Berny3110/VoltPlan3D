@@ -119,7 +119,7 @@ export default function App() {
   const [activePointPhase, setActivePointPhase] = useState<PhaseCode>('L1');
   const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>('TOUTES');
 
-  const snapStep = 0.5;
+  const snapStep = 0.1;
   const magneticSnap = true;
   const levelFilter = 'all' as const;
   const [workElevation, setWorkElevation] = useState<number>(0);

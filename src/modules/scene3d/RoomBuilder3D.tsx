@@ -169,7 +169,7 @@ type DragAction =
       cOut: THREE.Vector3;
     };
 
-const SNAP_THRESHOLD = 0.48;
+const SNAP_THRESHOLD = 0.09;
 
 const WALL_LABELS: Record<WallSide, string> = {
   north: 'Nord',
@@ -1591,7 +1591,7 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
   activePointCategory,
   activePointPhase,
   phaseFilter,
-  snapStep = 0.5,
+  snapStep = 0.1,
   magneticSnap = true,
   workElevation = 0,
   levelFilter = 'all',
@@ -2917,7 +2917,7 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
 
       if (activeDrag.type === 'resize-x+') {
         const sx = snapCoordToWalls(hit.x, otherWalls.xs, step, mag);
-        const maxX = Math.max(activeDrag.anchorMinX + 1.0, sx.value);
+        const maxX = Math.max(activeDrag.anchorMinX + 0.5, sx.value);
         const largeur = Number((maxX - activeDrag.anchorMinX).toFixed(2));
         const x = Number((activeDrag.anchorMinX + largeur / 2).toFixed(2));
         renderGuides(sx.snappedTo, null, activeDrag.room.y);
@@ -2927,7 +2927,7 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
         updateRoom({ ...activeDrag.room, x, largeur });
       } else if (activeDrag.type === 'resize-x-') {
         const sx = snapCoordToWalls(hit.x, otherWalls.xs, step, mag);
-        const minX = Math.min(activeDrag.anchorMaxX - 1.0, sx.value);
+        const minX = Math.min(activeDrag.anchorMaxX - 0.5, sx.value);
         const largeur = Number((activeDrag.anchorMaxX - minX).toFixed(2));
         const x = Number((minX + largeur / 2).toFixed(2));
         renderGuides(sx.snappedTo, null, activeDrag.room.y);
@@ -2937,7 +2937,7 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
         updateRoom({ ...activeDrag.room, x, largeur });
       } else if (activeDrag.type === 'resize-z+') {
         const sz = snapCoordToWalls(hit.z, otherWalls.zs, step, mag);
-        const maxZ = Math.max(activeDrag.anchorMinZ + 1.0, sz.value);
+        const maxZ = Math.max(activeDrag.anchorMinZ + 0.5, sz.value);
         const profondeur = Number((maxZ - activeDrag.anchorMinZ).toFixed(2));
         const z = Number((activeDrag.anchorMinZ + profondeur / 2).toFixed(2));
         renderGuides(null, sz.snappedTo, activeDrag.room.y);
@@ -2947,7 +2947,7 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
         updateRoom({ ...activeDrag.room, z, profondeur });
       } else if (activeDrag.type === 'resize-z-') {
         const sz = snapCoordToWalls(hit.z, otherWalls.zs, step, mag);
-        const minZ = Math.min(activeDrag.anchorMaxZ - 1.0, sz.value);
+        const minZ = Math.min(activeDrag.anchorMaxZ - 0.5, sz.value);
         const profondeur = Number((activeDrag.anchorMaxZ - minZ).toFixed(2));
         const z = Number((minZ + profondeur / 2).toFixed(2));
         renderGuides(null, sz.snappedTo, activeDrag.room.y);
@@ -2967,8 +2967,8 @@ export const RoomBuilder3D: React.FC<RoomBuilder3DProps> = ({
             x: drawRect.x,
             y: propsRef.current.workElevation,
             z: drawRect.z,
-            largeur: Math.max(1, drawRect.largeur),
-            profondeur: Math.max(1, drawRect.profondeur),
+            largeur: Math.max(0.5, drawRect.largeur),
+            profondeur: Math.max(0.5, drawRect.profondeur),
             hauteur: 2.6,
           });
         } else if (
